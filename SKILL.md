@@ -18,6 +18,7 @@ description: AI 中转站 API 验真取证工具——验证模型真伪、提�
 - 「提取它的系统提示词」
 - 「帮我看看这个 Key 背后跑的是什么模型」
 - 「检测模型有没有被换芯 / 降智」
+- 「商家说支持可验证推理 / 零知识证明，是真的吗？」「帮我核验这份证明包」
 
 ## How to use
 
@@ -61,8 +62,23 @@ python -m api_detective scan --base-url <URL> --api-key <KEY> --model <MODEL> \
     --phases recon,identity,tokenizer,behavior
 ```
 
-阶段：`recon / canary / unmask / identity / prompt_extract / pliny / dialect /
+阶段：`recon / attestation / canary / unmask / identity / prompt_extract / pliny / dialect /
 router_detect / tokenizer / behavior / capability / style / met / verdict`
+
+### 可验证推理证明（v0.7 新增，有证明包时用）
+
+```bash
+# 探测端点是否自称提供可验证推理（零计费，不发起对话）
+python -m api_detective attest probe --base-url <URL> --api-key <KEY> --model <MODEL>
+
+# 离线核验证明包与「输出/货品」的绑定关系（不需网络、不需 GPU）
+python -m api_detective attest verify --bundle bundle.json \
+    --response reply.txt --model <MODEL>
+```
+
+判定码：`attested_verified`（+3，密码学级确证）/ `attested_unverified`（+1，自洽未验签）/
+`unverifiable`（0，不下结论）/ `inconsistent`（−3，声称被证伪，CLI 退出码 1）。
+**没有证明 ≠ 假货**——端点不具备该能力时不计分、不定罪。
 
 ## Output
 

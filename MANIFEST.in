@@ -19,7 +19,7 @@ recursive-include baselines *.json
 recursive-include skills *.md *.py *.sh
 # 文档与真实案例（examples 中部分文件按 .gitignore 策略不入库，存在才打包）
 recursive-include docs *.md
-recursive-include examples *.md
+recursive-include examples *.md *.json *.txt
 
 # 🔒 合规硬排除：含可识别站点域名/商号的未脱敏案例，绝不进任何发行包
 # （即使本地存在、即使 git 忽略规则失效，也必须在此再挡一次）

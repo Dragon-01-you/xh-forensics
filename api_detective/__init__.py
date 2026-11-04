@@ -5,6 +5,7 @@
 - Model Equality Testing (ICLR 2025, Stanford) — 同一性两样本检验
 - Real Money, Fake Models: Deceptive Model Claims in Shadow APIs (arXiv:2603.01919)
 - LLMmap — 黑盒指纹
+- FlashProve / 可验证推理（Anthropic, 2026-11 开源）— zkSNARK 证明与权重承诺
 - CL4R1T4S / asgeirtj/system_prompts_leaks — 系统提示词泄露档案与提取技术谱系
 - elder-plinius 对抗性提取分类学（NEW_PARADIGM / leetspeak / 假设框架）
 
@@ -37,6 +38,13 @@ v0.5.0 新增（对标顶尖项目的「数据即产品」基因）:
 - 判决引擎回归基准: tests/cases/ 历史已定案件 → 期望档位
   （tests/run_regression.py，对标 LLMmap test_model.py 的量化标尺模式）
 - 学术引用: CITATION.cff（GitHub 渲染 "Cite this repository" 按钮）
+v0.7.0 新增（可验证推理：把证据轴抬到数学层）:
+- attestation 证据轴（attestation.py）: 核验证明包与「输出/货品」的绑定关系
+  输出哈希 / 主体模型 / 权重承诺 / 证明体量 / 新鲜度-nonce 五类绑定；
+  判定 attested_verified(+3) / attested_unverified(+1) / unverifiable(0) / inconsistent(-3)
+- `xh attest probe|verify` 子命令：探测端点能力（零计费）+ 离线核验（无需网络/GPU）
+- 判决引擎双轴: score（行为学似然）+ assurance（保证级别：密码学确证 / 行为学推定）
+- 情报卡 intel/verifiable_inference.md: 中转站 5 种绕过路径 + 证明不能证明什么
 """
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"

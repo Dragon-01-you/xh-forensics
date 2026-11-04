@@ -35,7 +35,7 @@ It's like buying a gold bar — the label says "999 pure gold", but you have no 
 
 **XH (芯火) is the "counterfeit detector" in your pocket**: give it a URL and an API key, and it runs multi-dimensional behavioral forensics against the endpoint, then produces a verdict report with a score, a complete evidence chain, and plain-language explanations.
 
-### It answers 5 questions
+### It answers 6 questions
 
 | # | Question | How |
 |:---:|---|---|
@@ -44,6 +44,7 @@ It's like buying a gold bar — the label says "999 pure gold", but you have no 
 | 3 | **Are these the same model?** | Model Equality Testing (MET) across channels / relay vs. official |
 | 4 | **Any funny business?** | Content-routing fraud, gag-instruction detection, fake-streaming detection, economic-feasibility analysis |
 | 5 | **Where's the evidence?** | Every clue archived as raw JSON with layman-readable explanations — auditable, contestable |
+| 6 | **Does it really produce proofs, or just talk?** | Probe whether the endpoint offers verifiable inference, then verify the proof bundle's binding to the output you actually received |
 
 ---
 
@@ -55,6 +56,7 @@ It's like buying a gold bar — the label says "999 pure gold", but you have no 
 - [How It Works](#-how-it-works)
 - [Technology](#-technology)
 - [LLMmap Fingerprinting + Crypto Signatures + Security Audit + Softmax Verdict](#-llmmap-fingerprinting--crypto-signatures--baseline-diff--security-audit--softmax-verdict-v04v05)
+- [Verifiable Inference Attestation (v0.7)](#-verifiable-inference-attestation-v07)
 - [Use as an Agent Skill](#-use-as-an-agent-skill)
 - [Local Web UI](#-local-web-ui)
 - [Comparison](#-comparison)
@@ -73,7 +75,7 @@ It's like buying a gold bar — the label says "999 pure gold", but you have no 
 
 A condensed replay of a real `dig` run: zero-cost fingerprinting → canary → unmasking (vendor confession matrix, verbatim system-prompt hits) → verdict.
 
-**Core capability matrix**: ✅ LLMmap pretrained fingerprint · ✅ Crypto signature verification (Claude thinking signature / OpenAI reasoning tokens) · ✅ 5-probe security audit · ✅ Softmax verdict engine v2 · ✅ Agent Skill distribution · ✅ Web UI local console · ✅ Multi-site cross-comparison · ✅ MET + Fisher statistical tests
+**Core capability matrix**: ✅ LLMmap pretrained fingerprint · ✅ Crypto signature verification (Claude thinking signature / OpenAI reasoning tokens) · ✅ Verifiable-inference proof verification (`xh attest`) · ✅ 5-probe security audit · ✅ Softmax verdict engine v2 · ✅ Agent Skill distribution · ✅ Web UI local console · ✅ Multi-site cross-comparison · ✅ MET + Fisher statistical tests
 
 ---
 
@@ -273,11 +275,40 @@ All security probes use a dedicated query prefix (query-family isolation) so the
 
 Old-engine pain points: probe-count dominance, error pollution, unexplainable borderline cases. v2 upgrades:
 
-1. **Category normalization**: probes grouped into 11 categories; in-group severity mean × category weight
+1. **Category normalization**: probes grouped into 12 categories; in-group severity mean × category weight
 2. **Failed-probe skipping**: failed probes leave their category absent; weights redistribute to categories with evidence
 3. **Asymmetric matching**: "should know" (own vendor lore, signature format) scores positively; "should not happen" (leaked instructions, anomalous signatures) scores negatively
 4. **Temperature softmax** (T=0.5): probabilistic P(genuine) ∈ [0,1]
 5. **Coverage protection**: coverage <35% triggers the "Inconclusive" tier; **hard evidence is never diluted by coverage**
+
+---
+
+## 🔐 Verifiable Inference Attestation (v0.7)
+
+On 2026-11-03 Anthropic open-sourced [FlashProve](https://github.com/anthropics/FlashProve): every inference emits a zkSNARK proof, and a verifier **needs neither the weights nor a GPU** — a plain CPU confirms in seconds that "this output really came from that committed model". That raises the evidence ceiling to the mathematical level — but it only covers part of a relay's threat model.
+
+v0.7 adds a **fourth evidence axis** (the first three are behavioral side channels / cryptographic signatures / pretrained fingerprints):
+
+- **No proof system reimplementation** (that's the upstream verifier's job) — we verify the **binding layer**, which is precisely where a relay can cheat
+- **Probe**: `xh attest probe` — zero-billing check for attestation advertisement (`/v1/models` fields, response headers, well-known endpoints)
+- **Verify**: `xh attest verify` — offline checks on 5 bindings (output hash / claimed model / weight commitment / proof size / freshness)
+- **Two-axis verdict**: the score stays a behavioral likelihood; a new `assurance` field states whether the conclusion is a *cryptographic proof* or a *behavioral inference*
+
+```bash
+xh attest probe  --base-url https://api.example.com --api-key sk-xxx --model deepseek-v4-pro
+xh attest verify --bundle bundle.json --response reply.txt --model deepseek-v4-pro
+```
+
+| Verdict id | Severity | Meaning |
+|---|---|---|
+| `attested_verified` | +3 | Bindings consistent + upstream verifier passed → cryptographic-grade proof |
+| `attested_unverified` | +1 | Bindings consistent, upstream verification not run → "consistent" only |
+| `unverifiable` | 0 | Missing fields / unknown prover → no conclusion (**not** evidence of faking) |
+| `inconsistent` | −3 | Any binding failed → claim falsified (e.g. proof from model A, text from model B) |
+
+The five bypass paths relays actually use, and **what a proof cannot prove** (system prompts, weight variants, routing and billing are out of scope), are documented in [`intel/verifiable_inference.md`](intel/verifiable_inference.md).
+
+> Boundary in one line: **no proof ≠ fake** (almost no endpoint offers one in 2026, absence contributes no score); **a proof with consistent bindings is the only evidence that can support a "genuine" verdict**.
 
 ---
 
@@ -323,8 +354,9 @@ python -m api_detective web --port 8501
 | api-relay-audit | 14-step relay security audit | No model verification, no verdict engine — **its audit approach absorbed as our isolated query-family probes** |
 | FakeModelDetector | Temperature-softmax scoring methodology | **absorbed into our verdict engine v2** |
 | Real Money, Fake Models (arXiv) | Relay-audit framework (paper) | No runnable tool, no layman-readable verdicts |
+| [FlashProve](https://github.com/anthropics/FlashProve) (Anthropic, 2026-11) | Verifiable-inference proof system (weight commitment + per-request proof, seconds to verify on CPU) | Proves only "this output came from the committed weights"; it does not cover a relay's threat model — **its proof-bundle binding check is integrated as the v0.7 attestation axis** |
 
-**Our 6 unique weapons**:
+**Our 7 unique weapons**:
 
 1. 🎯 **Relay threat model** — the target is the *relay-layer injected* gag/rewrite instructions, the smoking gun of rebadging
 2. 🧠 **CoT side-channel harvesting** — induce instruction recitation inside `reasoning_content`
@@ -332,6 +364,7 @@ python -m api_detective web --port 8501
 4. 🔀 **Content-routing A/B + Fisher test** — proves identity swapping is systematic
 5. 💰 **Economic infeasibility** — subscription far below official cost has only three explanations: stolen keys, harvesting, or Ponzi
 6. ⚖️ **Weighted verdict + local evidence** — produces a consumer-complaint-ready evidence pack
+7. 🔐 **Proof-bundle binding verification (v0.7)** — once proofs exist, the only thing a relay can still fake is the binding between *proof ↔ reply ↔ SKU*; we verify exactly that layer and separate *cryptographic proof* from *behavioral inference*
 
 ---
 
@@ -421,6 +454,7 @@ The key is only used locally, passed via CLI arguments — never written into co
 - [x] Public intelligence library `intel/` (machine-readable fraud patterns + 30-second cheat sheet, usable without installing)
 - [x] Multi-site cross-comparison report ([`intel/cross_site_comparison.md`](intel/cross_site_comparison.md))
 - [x] Verdict-engine regression benchmark (`tests/cases/` historical cases → expected tiers)
+- [x] Verifiable inference attestation (`xh attest`: proof-bundle binding verification + assurance axis, v0.7)
 - [ ] Community-built official baseline library (PRs to `baselines/*.json`)
 
 ---

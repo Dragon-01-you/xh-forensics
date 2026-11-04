@@ -55,6 +55,10 @@ def generate_dossier(results: dict, evidence_dir: str) -> str:
         a(f"- **判决**: {v.get('tier', '?')}（得分 {v.get('score', '?')}/100，"
           f"P(正品)={v.get('p_genuine', '?')}，覆盖率 "
           f"{round((v.get('coverage') or 0) * 100)}%）")
+        asm = v.get("assurance") or {}
+        if asm:
+            a(f"- **保证级别**: {asm.get('label')}（`{asm.get('level')}`）—— "
+              f"{asm.get('note', '')}")
     st = sc.get("stats", {})
     if st:
         a(f"- **关系网**: {st.get('节点数', 0)} 节点 / 确证边 {st.get('确证边', 0)} / 高置信边 {st.get('高置信边', 0)}")

@@ -8,12 +8,47 @@
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-04
+
+> 本次为**证据轴扩展 + 仓库迁移收尾**版本：吸收 Anthropic FlashProve（2026-11-03 开源）
+> 带来的可验证推理能力，新增第四类证据轴；原有探针与评分逻辑不变（回归基准 5/5 通过）。
+
+### 新增
+- **可验证推理证明核验（`xh attest`）**：`attestation.py`
+  - `xh attest probe`：零计费探测端点是否自称提供可验证推理（`/v1/models` 字段、
+    响应头、`.well-known` 端点、首页文案）
+  - `xh attest verify`：离线核验证明包 5 类绑定——输出哈希（证明是否绑定你实际收到的
+    那段文字）、主体模型（证明的模型 vs 在售 SKU）、权重承诺格式、证明体量下限
+    （STARK 级证明体积与计算轨迹成正比，400B 级实测约 19 MB/次）、新鲜度/nonce 防重放；
+    内联证明体额外校验摘要
+  - 判定码：`attested_verified`(+3) / `attested_unverified`(+1) / `unverifiable`(0) /
+    `inconsistent`(-3)；绑定不一致时 CLI 以退出码 1 结束，便于接入风控与 CI
+  - **未实现 STARK 证明系统本身**：真正的密码学验签由上游 verifier 执行，
+    本工具核的是中转站唯一能动手脚的那层（绑定关系）
+- **判决引擎双轴（`assurance`）**：分数仍是行为学似然，新增保证级别
+  `cryptographic`（密码学确证）/ `attested`（自洽未验签）/ `behavioral`（行为学推定）/ `failed`。
+  新增证据类别 `attestation`（权重 0.20，全类别最高）；**端点没有该能力时不计分、不定罪**
+- **`scan` / `dig` 接入**：`--attestation-bundle` / `--attestation-response`
+  把证明包并入整体判决；`dig` 增加零计费能力探测步骤
+- **情报卡 `intel/verifiable_inference.md`**：三段式流程（按手印/开证明/验真）的公开口径数据、
+  中转站 5 种绕过路径（双源拼装/换货不换证/体积缩水/重放旧证/空头承诺）、
+  以及「证明不能证明什么」（系统提示词、量化版本、路由计费均不在证明范围内）
+- **示例与测试**：`examples/attestation_bundle.example.json` +
+  `examples/attestation_response.example.txt`（可立即跑通 `xh attest verify`）；
+  `tests/test_attestation.py`（19 项断言，零依赖）+ CI 步骤
+
 ### 变更
 - **仓库地址迁移完成**：GitHub 仓库由 `Dragon-01-you/api-detective` 更名为
   `Dragon-01-you/xh-forensics`，与产品名、PyPI 包名、命令名统一。README 徽章、
   clone 地址、`pyproject.toml` 的 `[project.urls]`、`CITATION.cff`、Skill 包、
   两张配图页脚、30 秒宣传片片尾地址均已同步。GitHub 保留旧名 301 重定向，
   历史链接不会失效。`api-detective` 命令行别名继续保留。
+- 证据类别由 11 类增至 12 类；权重总和 1.20（聚合按「在场类别」归一，
+  覆盖率上限截断到 1.0，历史案件评分不变）
+- 报告的「总判决」下新增**保证级别**一行：明确本次结论是密码学确证还是行为学推定
+
+### 修复
+- `tools/make_readme_art.py` 未使用的 `import shutil`（ruff `F401`）导致 CI 连续两次失败
 
 ## [0.6.0] — 2026-08-25
 

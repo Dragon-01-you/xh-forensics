@@ -25,8 +25,8 @@ def cmd_scan(args) -> None:
                     out_dir=args.out, seed=args.seed)
 
     phases = args.phases.split(",") if args.phases != "all" else [
-        "recon", "canary", "unmask", "identity", "prompt_extract", "pliny",
-        "dialect", "router_detect", "tokenizer", "behavior", "capability",
+        "recon", "attestation", "canary", "unmask", "identity", "prompt_extract",
+        "pliny", "dialect", "router_detect", "tokenizer", "behavior", "capability",
         "style", "met", "verdict"]
 
     results: dict = {"meta": {
@@ -43,6 +43,24 @@ def cmd_scan(args) -> None:
         print("[*] 阶段0 基础设施侦察 ...")
         results["recon"] = do_recon(det)
         det.ev.save("recon_summary", results["recon"])
+
+    # ---- 可验证推理能力探测（零计费，不发起对话）----
+    if "attestation" in phases:
+        from .attestation import probe_attestation, verify_bundle_file
+        print("[*] 阶段0a 可验证推理能力探测（零计费）...")
+        att: dict = {"probe": probe_attestation(det)}
+        if getattr(args, "attestation_bundle", None):
+            text = None
+            if getattr(args, "attestation_response", None):
+                with open(args.attestation_response, encoding="utf-8") as f:
+                    text = f.read()
+            att["verification"] = verify_bundle_file(
+                args.attestation_bundle, response_text=text, claimed_model=args.model)
+            print(f"[{'!' if att['verification']['severity'] == -3 else '+'}] "
+                  f"证明包核验: {att['verification']['headline']}")
+        elif att["probe"].get("advertised"):
+            print("[+] 端点自称提供可验证推理——请索取证明包并用 `xh attest verify` 核验")
+        results["attestation"] = att
 
     # ---- 金丝雀 ----
     if "canary" in phases:
@@ -193,6 +211,15 @@ def cmd_dig(args) -> None:
     print("[*] dig/1 零成本指纹（免费）...")
     results["fingerprint"] = do_fingerprint(det)
 
+    print("[*] dig/1b 可验证推理能力探测（零计费）...")
+    from .attestation import probe_attestation
+    att_probe = probe_attestation(det)
+    results["attestation"] = {"probe": att_probe}
+    if att_probe.get("advertised"):
+        print(f"[+] 端点自称提供可验证推理：{att_probe['signals'][:2]}")
+    else:
+        print("[-] 端点无可验证推理能力（结论只能到行为学推定级）")
+
     print("[*] dig/2 金丝雀 ...")
     canary = det.canary()
     results["canary"] = canary
@@ -324,6 +351,37 @@ def cmd_add_model(args) -> None:
         print("[!] 失败。请检查 LLMmap 仓库完整性 / API Key 环境变量。")
 
 
+def cmd_attest(args) -> None:
+    """可验证推理（verifiable inference）：证明包核验 / 能力探测。"""
+    from .attestation import probe_attestation, verify_bundle_file
+
+    if args.attest_cmd == "verify":
+        text = None
+        if args.response:
+            with open(args.response, encoding="utf-8") as f:
+                text = f.read()
+        r = verify_bundle_file(args.bundle, response_text=text,
+                               claimed_model=args.model)
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        print(f"\n[{'!' if r['severity'] is not None and r['severity'] < 0 else '+'}] "
+              f"{r['headline']}")
+        if r["verdict_id"] == "attested_verified":
+            print("[+] 密码学级确证：可写入报告作为「正品」的直接证据")
+        elif r["verdict_id"] == "inconsistent":
+            raise SystemExit(1)   # 绑定不一致 → 体现为失败退出，便于接入 CI/风控
+        return
+
+    from .core import Detective
+    det = Detective(args.base_url, args.api_key, args.model, out_dir=args.out)
+    r = probe_attestation(det)
+    print(json.dumps({
+        "advertised": r["advertised"],
+        "verdict_id": r["verdict_id"],
+        "signals": r["signals"],
+        "note": r["note"],
+    }, ensure_ascii=False, indent=2))
+
+
 def cmd_web(args) -> None:
     """本地 Web UI（FastAPI + 静态页，零遥测，仅监听 localhost）。"""
     from .webapp import run_webapp
@@ -369,7 +427,7 @@ def main() -> None:
     s.add_argument("--model", required=True, help="商家声称的模型名")
     s.add_argument("--compare-model", default=None, help="第二个模型名（MET 同一性检验）")
     s.add_argument("--phases", default="all",
-                   help="逗号分隔: recon,canary,identity,prompt_extract,pliny,"
+                   help="逗号分隔: recon,attestation,canary,identity,prompt_extract,pliny,"
                         "dialect,router_detect,tokenizer,behavior,capability,"
                         "style,met,verdict")
     s.add_argument("--budget", type=int, default=None, help="最大计费调用数")
@@ -379,6 +437,10 @@ def main() -> None:
     s.add_argument("--style-samples", type=int, default=3)
     s.add_argument("--unmask-models", type=int, default=8,
                    help="揭面阶段最多扫描的 SKU 数（echo 矩阵规模）")
+    s.add_argument("--attestation-bundle", default=None,
+                   help="可验证推理证明包 JSON（有则离线核验并计入判决）")
+    s.add_argument("--attestation-response", default=None,
+                   help="与证明包对应的回答原文文件（用于输出绑定核验）")
     s.set_defaults(func=cmd_scan)
 
     r = sub.add_parser("report", help="从证据生成小白可读报告")
@@ -414,6 +476,21 @@ def main() -> None:
                     help="预训练模型目录（默认 LLMMAP_MODEL_PATH 或自动探测）")
     am.add_argument("--prompt-conf-path", default=None)
     am.set_defaults(func=cmd_add_model)
+
+    at = sub.add_parser("attest",
+                        help="可验证推理：核验证明包绑定关系 / 探测端点是否提供证明")
+    atsub = at.add_subparsers(dest="attest_cmd", required=True)
+    av = atsub.add_parser("verify", help="离线核验一份 attestation 证明包（不需端点/GPU）")
+    av.add_argument("--bundle", required=True, help="证明包 JSON 路径")
+    av.add_argument("--response", default=None,
+                    help="你实际收到的回答原文文件（核验输出绑定，强烈建议提供）")
+    av.add_argument("--model", default=None, help="商家在售的 SKU（核验主体绑定）")
+    atp = atsub.add_parser("probe", help="探测端点是否提供可验证推理能力（零计费）")
+    atp.add_argument("--base-url", required=True)
+    atp.add_argument("--api-key", required=True)
+    atp.add_argument("--model", required=True)
+    atp.add_argument("--out", default="./attestation_evidence")
+    at.set_defaults(func=cmd_attest)
 
     w = sub.add_parser("web", help="本地 Web UI 报告可视化（零遥测，仅监听 localhost）")
     w.add_argument("--port", type=int, default=8501)

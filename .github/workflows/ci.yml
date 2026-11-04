@@ -39,13 +39,17 @@ jobs:
           python -m api_detective add-model --help > /dev/null
           python -m api_detective web --help > /dev/null
           python -m api_detective baseline --help > /dev/null
+          python -m api_detective attest --help > /dev/null
 
       - name: Smoke test — package imports
         run: |
           python -c "import api_detective; assert api_detective.__version__"
           python -c "from api_detective import cli, core, verdict, dossier, unmask, behavior, router_detect"
-          python -c "from api_detective import webapp, baseline_compare"
+          python -c "from api_detective import webapp, baseline_compare, attestation"
           python -c "from api_detective.probes import llmmap_fingerprint, crypto_signature, security_audit"
+
+      - name: Unit test — attestation bundle verification (verifiable inference)
+        run: python tests/test_attestation.py
 
       - name: Unit test — verdict engine v2 (category normalization + softmax)
         run: |

@@ -1,0 +1,33 @@
+{
+  "schema": "xh-attestation/v1",
+  "provider": "flashprove",
+  "prover": {
+    "impl": "FlashProve",
+    "version": "0.1.0",
+    "protocol": "stark"
+  },
+  "model": {
+    "claimed": "deepseek-v4-pro",
+    "commitment_id": "blake2b:c3e627388b5ea6b2e51ef96b0176003b2f8e839ce3071e41aba9b0e3da233bf5"
+  },
+  "request": {
+    "id": "req_example_0001",
+    "nonce": "9f2c1e8a7b3d",
+    "ts_utc": "2026-11-04T00:00:00+00:00"
+  },
+  "output": {
+    "sha256": "sha256:4d65bbc16f58c09612023dbb179249cbcf3ac789d5711f4baae2e405bca36404",
+    "tokens": 42
+  },
+  "proof": {
+    "bytes": 19780000,
+    "encoding": "base64",
+    "n_sumchecks": 2016
+  },
+  "verification": {
+    "external": "passed",
+    "verifier": "cp_verify",
+    "duration_s": 17.0
+  },
+  "_comment": "示例证明包：只示范 xh 核验的字段结构（绑定关系），不包含真实证明体。真实 bundle 由服务商的可验证推理系统输出，proof.payload 通常为数 MB 至数十 MB。"
+}

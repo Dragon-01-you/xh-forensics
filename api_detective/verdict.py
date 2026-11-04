@@ -14,24 +14,27 @@ v2 相比 v1 的升级（吸收 FakeModelDetector 方法学）:
 5. 证据覆盖率   —— 缺席类别过多时向中性收缩并触发「证据不足」保护，
                    防止只跑 recon 就给出高分假阳性
 
-证据类别权重（密码学 > 预训练指纹 > 行为侧信道，求和 = 1.0）:
-  crypto_signature  0.18  密码学证据（Anthropic thinking signature / reasoning tokens）
+证据类别权重（密码学 > 预训练指纹 > 行为侧信道；总和 1.20，
+聚合按「在场类别」权重归一，故总和 > 1 不影响加权平均，只把覆盖率上限截断到 1.0）:
+  attestation        0.20  可验证推理证明（zkSNARK 绑定核验，2026-11 FlashProve 后的新证据轴）
+  crypto_signature   0.18  密码学证据（Anthropic thinking signature / reasoning tokens）
   llmmap_fingerprint 0.14  预训练指纹分类器输出（52 模板最近邻）
-  identity          0.16  自我身份证据
-  injected_prompt   0.12  注入指令/封口令证据
-  routing           0.08  内容路由异常
-  behavior          0.06  行为指纹
-  security_audit    0.06  中转站安全风险（注入/截断/改写/泄露）
-  spec              0.05  规格/计费矛盾
-  tokenizer         0.05  计数器指纹
-  style_met         0.05  风格/MET 同源性
-  economics         0.05  经济可行性
+  identity           0.16  自我身份证据
+  injected_prompt    0.12  注入指令/封口令证据
+  routing            0.08  内容路由异常
+  behavior           0.06  行为指纹
+  security_audit     0.06  中转站安全风险（注入/截断/改写/泄露）
+  spec               0.05  规格/计费矛盾
+  tokenizer          0.05  计数器指纹
+  style_met          0.05  风格/MET 同源性
+  economics          0.05  经济可行性
 """
 from __future__ import annotations
 
 import math
 
 WEIGHTS = {
+    "attestation": 0.20,        # 可验证推理证明（数学级——绑定自洽且上游验签通过）
     "crypto_signature": 0.18,   # 密码学证据（最高——服务端加密产物难以伪造）
     "llmmap_fingerprint": 0.14, # 预训练指纹（高于现场探针）
     "identity": 0.16,           # 自我身份证据
@@ -104,7 +107,7 @@ def _aggregate(p_by_cat: dict, sev_by_cat: dict) -> dict:
         return {"p_genuine": NEUTRAL_P, "coverage": 0.0,
                 "score": 50, "inconclusive": True}
     p = sum(p_by_cat[c] * WEIGHTS.get(c, 0) for c in p_by_cat) / present_w
-    coverage = round(present_w, 4)
+    coverage = round(min(1.0, present_w), 4)
     has_hard = any(s <= -3 for s in sev_by_cat.values())
     if p >= NEUTRAL_P:
         rate = coverage                       # 正向：按覆盖率收缩
@@ -198,6 +201,32 @@ def _collect_clues(data: dict) -> list:
                           f"和「{t1m}」几乎重合——很可能是同一个开源模型换皮。"))
     elif lm and lm.get("reason"):
         pass  # 依赖未装/模型缺失 → 类别缺席，不污染评分（错误探针跳过）
+
+    # ---- 可验证推理证明（attestation，第四类证据轴）----
+    # 只在拿到证明包核验结果时计分；端点「没有这项能力」不定罪（2026 年仍是极少数）
+    att = data.get("attestation") or {}
+    ver = att.get("verification") if isinstance(att.get("verification"), dict) else att
+    if ver.get("verdict_id") in ("attested_verified", "attested_unverified",
+                                 "inconsistent", "unverifiable"):
+        vid, sev = ver["verdict_id"], ver.get("severity")
+        lay = {
+            "attested_verified": (
+                "FlashProve 一类可验证推理系统把「权重承诺 + 单次推理证明」绑到"
+                "这段输出上，并在普通 CPU 上验签通过：这是数学级出生证明，"
+                "不是行为学猜测。"),
+            "attested_unverified": (
+                "证明包与输出/货品的绑定关系自洽，但没跑上游 verifier——"
+                "只能说明「格式与承诺对得上」，不能当作密码学确证。"),
+            "inconsistent": (
+                "证明包声称证明了某个模型，但与它绑定的输出/货品对不上——"
+                "证明与回答可以被分别替换，这正是中转层最方便的作弊点。"),
+            "unverifiable": (
+                "证明包格式可读但缺关键字段或 prover 未知，无法对照公开实现，"
+                "因此不作正负判断（不等于假货）。"),
+        }[vid]
+        if sev:
+            clues.append(("attestation", sev, vid,
+                          ver.get("headline", ""), lay))
 
     # ---- 加密签名（should-exist：真 Claude 的 thinking 签名应存在且每次不同）----
     cs = data.get("crypto_signature") or {}
@@ -406,6 +435,8 @@ def _collect_clues(data: dict) -> list:
 # ----------------------------------------------------------------------
 def build_verdict(data: dict) -> dict:
     """data: {phase_name: phase_result}，各阶段可缺省（缺省=错误探针跳过）。"""
+    from .attestation import assurance_block
+
     clues = _collect_clues(data)
 
     # 类别归一化 → 温度 Softmax → 概率化判定
@@ -415,6 +446,13 @@ def build_verdict(data: dict) -> dict:
     tier = _tier_for(score, inconclusive)
     edge_note = _edge_case_note(score, inconclusive, p_by_cat, agg["coverage"])
 
+    # 保证级别（双轴）：分数是行为学似然，assurance 说明「证据强度属于哪一类」
+    att = data.get("attestation") or {}
+    ver = att.get("verification") if isinstance(att.get("verification"), dict) else att
+    probe = att.get("probe") if isinstance(att.get("probe"), dict) else (
+        att if att.get("advertised") is not None else None)
+    assurance = assurance_block(ver if ver.get("verdict_id") else None, probe)
+
     return {
         "score": score,
         "p_genuine": agg["p_genuine"],
@@ -423,6 +461,14 @@ def build_verdict(data: dict) -> dict:
         "temperature": SOFTMAX_TEMPERATURE,
         "tier": tier[1],
         "tier_desc": tier[2],
+        "assurance": assurance,                # 证据强度层级（行为学推定 / 密码学确证）
+        "attestation": {
+            "verdict_id": ver.get("verdict_id"),
+            "headline": ver.get("headline"),
+            "provider": ver.get("provider"),
+            "commitment_id": ver.get("commitment_id"),
+            "advertised": None if probe is None else probe.get("advertised"),
+        } if (ver.get("verdict_id") or probe) else None,
         "category_scores": p_by_cat,          # 每类 P(正品)（概率化）
         "category_mean_severity": sev_by_cat, # 每类 severity 均值
         "edge_case_note": edge_note,
@@ -434,7 +480,9 @@ def build_verdict(data: dict) -> dict:
         ],
         "weights": WEIGHTS,
         "disclaimer": (
-            "结论基于黑盒行为证据。'确证'级结论（泄露指令/自认他厂/内容路由/密码学签名）"
-            "在造假方不真跑真模型的前提下无法翻案；要 100% 铁证可加跑"
-            "官方端点同题对照（--baseline / MET 模块）。"),
+            "结论基于黑盒行为证据（保证级别见 assurance）。'确证'级结论"
+            "（泄露指令/自认他厂/内容路由/密码学签名）在造假方不真跑真模型的前提下"
+            "无法翻案；要 100% 铁证可加跑官方端点同题对照（--baseline / MET 模块），"
+            "或要求服务商提供可验证推理证明包并用 `xh attest verify` 核验绑定关系"
+            "（2026-11 起 FlashProve 类系统已开源）。"),
     }

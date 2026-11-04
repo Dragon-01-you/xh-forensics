@@ -18,6 +18,32 @@ def generate_report(results: dict) -> str:
     a(f"## 总判决：{v.get('tier')}（可信度评分 {v.get('score')}/100）\n")
     a(f"> {v.get('tier_desc')}\n")
 
+    asm = v.get("assurance") or {}
+    if asm:
+        a(f"- **保证级别**：{asm.get('label')}（`{asm.get('level')}`）")
+        if asm.get("note"):
+            a(f"- {asm['note']}")
+        if asm.get("commitment_id"):
+            a(f"- 权重承诺：`{asm['commitment_id']}`")
+        a("")
+
+    att = v.get("attestation") or {}
+    if att.get("verdict_id"):
+        a("## 可验证推理证明核验\n")
+        a(f"- 核验结论：**{att['verdict_id']}**")
+        if att.get("headline"):
+            a(f"- {att['headline']}")
+        if att.get("provider"):
+            a(f"- 证明系统：`{att['provider']}`")
+        if att.get("commitment_id"):
+            a(f"- 权重承诺：`{att['commitment_id']}`")
+        a("")
+    elif att.get("advertised"):
+        a("## 可验证推理证明核验\n")
+        a("- 端点**自称**提供可验证推理，但未提供证明包——"
+          "请向服务商索取 bundle 后用 `xh attest verify` 核验绑定关系。")
+        a("")
+
     clues = v.get("clues") or []
     if clues:
         a("## 证据清单（按严重度）\n")
@@ -121,6 +147,8 @@ def generate_report(results: dict) -> str:
     a("- 身份测谎 / 提示词提取：参考 CL4R1T4S、system-prompts-and-models-of-ai-tools 社区技术")
     a("- 内容路由探测：请求级 A/B 对照 + Fisher 精确检验")
     a("- 同一性检验：对标 Model Equality Testing (ICLR 2025, Stanford)")
+    a("- 可验证推理证明核验：对标 FlashProve（Anthropic, 2026-11 开源）的「权重承诺 + 单次推理证明」"
+      "绑定模型；本工具只核绑定关系，上游验签由对应 verifier 执行")
     a("- 整体框架：对标 Real Money, Fake Models: Deceptive Model Claims in Shadow APIs (arXiv:2603.01919)\n")
     a(f"> 免责声明：{v.get('disclaimer')}")
     return "\n".join(lines)
